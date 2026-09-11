@@ -165,16 +165,21 @@ class SystemCollector(private val context: Context) {
 
     private fun snapshotAudioUsbWifi() {
         try {
-            val devices = audio.getDevices(AudioManager.GET_DEVICES_ALL).map { d ->
-                mapOf(
-                    "id" to d.id,
-                    "type" to d.type,
-                    "product_name" to d.productName?.toString(),
-                    "address" to d.address,
-                    "source" to d.isSource,
-                    "sink" to d.isSink,
+            val devices = (
+                audio.getDevices(AudioManager.GET_DEVICES_INPUTS).asList() +
+                    audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).asList()
                 )
-            }
+                .distinctBy { it.id }
+                .map { d ->
+                    mapOf(
+                        "id" to d.id,
+                        "type" to d.type,
+                        "product_name" to d.productName?.toString(),
+                        "address" to d.address,
+                        "source" to d.isSource,
+                        "sink" to d.isSink,
+                    )
+                }
             Runtime.hub.emit(
                 TelemetryEvent(
                     "audio", "devices", devices,
