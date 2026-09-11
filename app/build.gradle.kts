@@ -5,6 +5,27 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val legacyAautoSdkAar = configurations.create("legacyAautoSdkAar") {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+    isTransitive = false
+}
+
+dependencies.add("legacyAautoSdkAar", "com.github.martoreto:aauto-sdk:v4.7@aar")
+
+val legacyAautoSdkJar = layout.buildDirectory.file("legacy-aauto/aauto-sdk-v4.7-classes.jar")
+val extractLegacyAautoSdk by tasks.registering {
+    inputs.files(legacyAautoSdkAar)
+    outputs.file(legacyAautoSdkJar)
+    doLast {
+        val aar = legacyAautoSdkAar.singleFile
+        val classesJar = zipTree(aar).matching { include("classes.jar") }.singleFile
+        val output = legacyAautoSdkJar.get().asFile
+        output.parentFile.mkdirs()
+        classesJar.copyTo(output, overwrite = true)
+    }
+}
+
 android {
     namespace = "net.jurgensen.vw270telemetry"
     compileSdk = 36
@@ -55,10 +76,15 @@ dependencies {
 
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
-    // Legacy Android Auto vendor-extension bridge used by VAG MIB2 ExLAP.
-    implementation("com.github.martoreto:aauto-vex-base:v4.4")
+    // The legacy SDK AAR contains resource syntax that modern AAPT2 rejects. We intentionally
+    // consume only classes.jar: the ExLAP PoC needs the vendor-extension Java API, not its UI.
+    implementation(files(legacyAautoSdkJar))
 
-    // Optional no-root diagnostic layer. Retained as the next fallback after public provider APIs.
+    // Optional no-root diagnostic layer. Retained until the ExLAP path is proven on-device.
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(extractLegacyAautoSdk)
 }
