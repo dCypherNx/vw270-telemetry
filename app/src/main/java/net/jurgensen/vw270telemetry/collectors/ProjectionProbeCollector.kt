@@ -17,8 +17,6 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.view.Display
-import android.view.InputDevice
 import net.jurgensen.vw270telemetry.Runtime
 import net.jurgensen.vw270telemetry.data.TelemetryEvent
 
@@ -83,7 +81,8 @@ class ProjectionProbeCollector(private val context: Context) {
                 TelemetryEvent(
                     "probe", "network_capabilities_changed",
                     mapOf("network" to network.toString(), "capabilities" to caps.toString())
-                )
+                ),
+                mqtt = false,
             )
         }
     }
@@ -91,7 +90,10 @@ class ProjectionProbeCollector(private val context: Context) {
     fun start(reason: String = "projection") {
         if (running) return
         running = true
-        Runtime.hub.emit(TelemetryEvent("probe", "collector", "started", attributes = mapOf("reason" to reason)))
+        Runtime.hub.emit(
+            TelemetryEvent("probe", "collector", "started", attributes = mapOf("reason" to reason)),
+            mqtt = false,
+        )
         snapshotAndroidAutoSurface(reason)
         try { displayManager.registerDisplayListener(displayListener, handler) } catch (t: Throwable) { emitError("display_listener", t) }
         try { audio.registerAudioDeviceCallback(audioCallback, handler) } catch (t: Throwable) { emitError("audio_callback", t) }
@@ -115,7 +117,10 @@ class ProjectionProbeCollector(private val context: Context) {
         try { displayManager.unregisterDisplayListener(displayListener) } catch (_: Throwable) {}
         try { audio.unregisterAudioDeviceCallback(audioCallback) } catch (_: Throwable) {}
         try { connectivity.unregisterNetworkCallback(networkCallback) } catch (_: Throwable) {}
-        Runtime.hub.emit(TelemetryEvent("probe", "collector", "stopped", attributes = mapOf("reason" to reason)))
+        Runtime.hub.emit(
+            TelemetryEvent("probe", "collector", "stopped", attributes = mapOf("reason" to reason)),
+            mqtt = false,
+        )
     }
 
     fun snapshotOnce(reason: String = "manual") {
@@ -206,10 +211,11 @@ class ProjectionProbeCollector(private val context: Context) {
     }
 
     private fun requestedPermissions(pi: PackageInfo): List<Map<String, Any?>> {
-        val names = pi.requestedPermissions.orEmpty()
-        val flags = pi.requestedPermissionsFlags.orEmpty()
+        val names: Array<String> = pi.requestedPermissions ?: emptyArray()
+        val permissionFlags: IntArray = pi.requestedPermissionsFlags ?: IntArray(0)
         return names.mapIndexed { index, name ->
-            val granted = index < flags.size && flags[index] and PackageInfo.REQUESTED_PERMISSION_GRANTED != 0
+            val granted = index < permissionFlags.size &&
+                permissionFlags[index].and(PackageInfo.REQUESTED_PERMISSION_GRANTED) != 0
             mapOf("name" to name, "granted" to granted)
         }
     }
@@ -232,7 +238,7 @@ class ProjectionProbeCollector(private val context: Context) {
     }.getOrElse { listOf(mapOf("error" to errorText(it))) }
 
     private fun snapshotInputDevices(): List<Map<String, Any?>> = runCatching {
-        InputDevice.getDeviceIds().mapNotNull { id -> InputDevice.getDevice(id) }.map { d ->
+        inputManager.inputDeviceIds.toList().mapNotNull { id -> inputManager.getInputDevice(id) }.map { d ->
             mapOf(
                 "id" to d.id,
                 "name" to d.name,
@@ -242,7 +248,7 @@ class ProjectionProbeCollector(private val context: Context) {
                 "sources" to d.sources,
                 "keyboard_type" to d.keyboardType,
                 "virtual" to d.isVirtual,
-                "enabled" to if (Build.VERSION.SDK_INT >= 27) d.isEnabled else null,
+                "enabled" to d.isEnabled,
             )
         }
     }.getOrElse { listOf(mapOf("error" to errorText(it))) }
@@ -349,7 +355,6 @@ class ProjectionProbeCollector(private val context: Context) {
                     "name" to r.name?.toString(),
                     "description" to r.description?.toString(),
                     "device_type" to r.deviceType,
-                    "connection_state" to r.connectionState,
                     "playback_type" to r.playbackType,
                     "playback_stream" to r.playbackStream,
                     "volume" to r.volume,
