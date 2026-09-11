@@ -13,8 +13,8 @@ android {
         applicationId = "net.jurgensen.vw270telemetry"
         minSdk = 28
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2-poc"
+        versionCode = 4
+        versionName = "0.1.3-poc"
 
         vectorDrawables.useSupportLibrary = true
     }
@@ -46,13 +46,12 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
 
-    // Car App core APIs + Android Auto projected host implementation.
+    // Kept only for CarConnection, which reliably reports projected Android Auto state.
     implementation("androidx.car.app:app:1.7.0")
-    implementation("androidx.car.app:app-projected:1.7.0")
 
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
-    // Optional no-root diagnostic layer. Requires the Shizuku app/service on the phone.
+    // Optional no-root diagnostic layer. Retained as the next fallback after public provider APIs.
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 }
