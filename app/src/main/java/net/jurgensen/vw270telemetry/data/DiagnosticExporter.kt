@@ -32,7 +32,7 @@ class DiagnosticExporter(private val context: Context) {
     }
 
     private fun manifestJson(): JSONObject = JSONObject().apply {
-        put("format", "vw270-telemetry-diagnostics-v1")
+        put("format", "vw270-telemetry-diagnostics-v2")
         put("created_at_ms", System.currentTimeMillis())
         put("app", appJson())
         put("device", JSONObject().apply {
@@ -46,6 +46,11 @@ class DiagnosticExporter(private val context: Context) {
         })
         put("android_auto", androidAutoJson())
         put("permissions", permissionsJson())
+        put("privacy", JSONObject().apply {
+            put("mqtt_credentials_omitted", true)
+            put("provider_credential_like_values_redacted_before_storage", true)
+            put("provider_blob_contents_omitted", true)
+        })
         put("settings", JSONObject().apply {
             put("auto_start", Runtime.prefs.autoStart)
             put("mqtt_enabled", Runtime.prefs.mqttEnabled)
@@ -55,7 +60,6 @@ class DiagnosticExporter(private val context: Context) {
             put("publish_raw_diagnostics", Runtime.prefs.publishRawDiagnostics)
             put("shizuku_auto_probe", Runtime.prefs.shizukuAutoProbe)
             put("virtual_odometer_m", Runtime.prefs.virtualOdometerM ?: JSONObject.NULL)
-            put("credentials_omitted", true)
         })
     }
 
@@ -101,9 +105,6 @@ class DiagnosticExporter(private val context: Context) {
             }
             if (Build.VERSION.SDK_INT >= 31) add(Manifest.permission.BLUETOOTH_CONNECT)
             if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
-            add("com.google.android.gms.permission.CAR_SPEED")
-            add("com.google.android.gms.permission.CAR_MILEAGE")
-            add("com.google.android.gms.permission.CAR_FUEL")
         }
         return JSONObject().apply {
             names.forEach { permission ->
@@ -123,15 +124,19 @@ class DiagnosticExporter(private val context: Context) {
     }
 
     private fun readme(): String = """
-        VW270 Telemetry diagnostic bundle
-        =================================
+        VW270 Telemetry diagnostic bundle v2
+        ====================================
 
-        manifest.json  app/device/Android Auto/permission metadata. MQTT credentials are omitted.
+        manifest.json  app/device/Android Auto/permission metadata and privacy flags.
         summary.json   event counts and availability/status summary.
         latest.json    latest value/status known for every telemetry key.
         events.jsonl   complete chronological event stream currently retained by the app.
 
+        aa_provider/* contains only read-only getType/query results from selected exported Android
+        Auto content providers. Credential-like values are redacted before persistence and BLOB
+        contents are never stored. MQTT credentials are never exported.
+
         Local retention is capped by the app at approximately 250,000 events and 7 days.
-        The collector is read-only: no vehicle commands are included in this bundle.
+        The collector sends no vehicle or Android Auto commands.
     """.trimIndent()
 }
