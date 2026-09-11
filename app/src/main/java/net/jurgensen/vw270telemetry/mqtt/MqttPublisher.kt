@@ -100,7 +100,7 @@ class MqttPublisher(private val prefs: AppPrefs) {
 
     private fun publishDiscoveryIfUseful(prefix: String, stateTopic: String, event: TelemetryEvent) {
         if (event.value !is Number && event.value !is String && event.value !is Boolean) return
-        if (event.source !in setOf("car", "fused", "aa", "system", "gnss")) return
+        if (event.source !in setOf("fused", "aa", "system", "gnss")) return
         val objectId = sanitize("vw270_${event.source}_${event.key}")
         if (!discoveryPublished.add(objectId)) return
         val config = JSONObject().apply {
@@ -155,13 +155,11 @@ class MqttPublisher(private val prefs: AppPrefs) {
 
     companion object {
         private val SENSOR_META = mapOf(
-            "speed_mps" to mapOf("unit_of_measurement" to "m/s", "device_class" to "speed", "state_class" to "measurement"),
-            "speed_raw_mps" to mapOf("unit_of_measurement" to "m/s", "device_class" to "speed", "state_class" to "measurement"),
-            "speed_display_mps" to mapOf("unit_of_measurement" to "m/s", "device_class" to "speed", "state_class" to "measurement"),
-            "odometer_m" to mapOf("unit_of_measurement" to "m", "device_class" to "distance", "state_class" to "total_increasing"),
-            "range_remaining_m" to mapOf("unit_of_measurement" to "m", "device_class" to "distance", "state_class" to "measurement"),
-            "fuel_percent" to mapOf("unit_of_measurement" to "%", "state_class" to "measurement"),
-            "battery_percent" to mapOf("unit_of_measurement" to "%", "device_class" to "battery", "state_class" to "measurement"),
+            "speed_mps" to mapOf(
+                "unit_of_measurement" to "m/s",
+                "device_class" to "speed",
+                "state_class" to "measurement",
+            ),
         )
     }
 }
