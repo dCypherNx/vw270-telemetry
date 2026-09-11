@@ -55,6 +55,9 @@ dependencies {
 
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
+    // Legacy Android Auto vendor-extension bridge used by VAG MIB2 ExLAP.
+    implementation("com.github.martoreto:aauto-vex-base:v4.4")
+
     // Optional no-root diagnostic layer. Retained as the next fallback after public provider APIs.
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
