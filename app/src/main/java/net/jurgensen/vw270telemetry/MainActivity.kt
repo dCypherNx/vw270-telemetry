@@ -18,6 +18,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import net.jurgensen.vw270telemetry.data.DiagnosticExporter
 import net.jurgensen.vw270telemetry.data.TelemetryEvent
 import net.jurgensen.vw270telemetry.shizuku.ShizukuProbe
 import rikka.shizuku.Shizuku
@@ -84,7 +85,12 @@ class MainActivity : AppCompatActivity() {
         root.addView(button("Executar snapshot read-only") {
             Thread { ShizukuProbe(this).runSnapshot("manual_ui"); runOnUiThread { renderLive() } }.start()
         })
-        root.addView(button("Exportar até 50 mil eventos (.jsonl)") { exportDiagnostics() })
+
+        root.addView(title("Logs para análise"))
+        root.addView(note("O pacote ZIP inclui eventos cronológicos, resumo de disponibilidade/status, últimos valores e metadados do aparelho/app. Credenciais MQTT não são exportadas."))
+        root.addView(button("Exportar pacote de diagnóstico (.zip)") { exportDiagnosticBundle() })
+        root.addView(button("Exportar eventos brutos (.jsonl)") { exportRawEvents() })
+        root.addView(note("Retenção local: até ~250 mil eventos e 7 dias. O arquivo é salvo pelo seletor de documentos do Android."))
 
         root.addView(title("MQTT / Home Assistant"))
         mqttEnabled = CheckBox(this).apply { text = "Publicar via MQTT"; isChecked = Runtime.prefs.mqttEnabled }
@@ -96,7 +102,7 @@ class MainActivity : AppCompatActivity() {
         mqttPrefix = input("Prefixo", Runtime.prefs.mqttPrefix)
         listOf(mqttEnabled, mqttTls, mqttHost, mqttPort, mqttUser, mqttPass, mqttPrefix).forEach(root::addView)
         root.addView(button("Salvar MQTT") { saveMqtt() })
-        root.addView(note("Dumpsys/logcat brutos permanecem apenas no SQLite local por padrão."))
+        root.addView(note("Diagnósticos brutos permanecem apenas no SQLite local por padrão."))
 
         root.addView(title("Estado ao vivo"))
         live = TextView(this).apply {
@@ -108,33 +114,82 @@ class MainActivity : AppCompatActivity() {
         return ScrollView(this).apply { addView(root) }
     }
 
-    private fun exportDiagnostics() {
+    private fun exportDiagnosticBundle() {
+        val i = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/zip"
+            putExtra(Intent.EXTRA_TITLE, "vw270-diagnostics-${System.currentTimeMillis()}.zip")
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(i, REQ_EXPORT_ZIP)
+    }
+
+    private fun exportRawEvents() {
         val i = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
             type = "application/x-ndjson"
-            putExtra(Intent.EXTRA_TITLE, "vw270-telemetry-${System.currentTimeMillis()}.jsonl")
+            putExtra(Intent.EXTRA_TITLE, "vw270-events-${System.currentTimeMillis()}.jsonl")
         }
         @Suppress("DEPRECATION")
-        startActivityForResult(i, REQ_EXPORT)
+        startActivityForResult(i, REQ_EXPORT_JSONL)
     }
 
     @Deprecated("Deprecated in Android API; retained to keep this PoC dependency-light")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_EXPORT && resultCode == RESULT_OK) {
-            val uri = data?.data ?: return
-            Thread {
-                try {
-                    val lines = Runtime.store.recent(50_000).asReversed()
-                    contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { w ->
-                        lines.forEach { w.appendLine(it) }
-                    }
-                    Runtime.hub.emit(TelemetryEvent("system", "export", lines.size))
-                } catch (t: Throwable) {
-                    Runtime.hub.emit(TelemetryEvent("system", "export", null, "error", attributes = mapOf("error" to t.message)))
-                }
-            }.start()
+        if (resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+
+        when (requestCode) {
+            REQ_EXPORT_ZIP -> exportZipTo(uri)
+            REQ_EXPORT_JSONL -> exportJsonlTo(uri)
         }
+    }
+
+    private fun exportZipTo(uri: Uri) {
+        Thread {
+            try {
+                val result = contentResolver.openOutputStream(uri)?.use { output ->
+                    DiagnosticExporter(this).writeZip(output)
+                } ?: error("Unable to open destination")
+                Runtime.hub.emit(
+                    TelemetryEvent(
+                        "system", "diagnostic_export", result.eventCount, "success",
+                        attributes = mapOf("format" to "zip", "uri" to uri.toString())
+                    )
+                )
+            } catch (t: Throwable) {
+                Runtime.hub.emit(
+                    TelemetryEvent(
+                        "system", "diagnostic_export", null, "error",
+                        attributes = mapOf("format" to "zip", "error" to t.message)
+                    )
+                )
+            }
+        }.start()
+    }
+
+    private fun exportJsonlTo(uri: Uri) {
+        Thread {
+            try {
+                val count = contentResolver.openOutputStream(uri)?.use { output ->
+                    Runtime.store.writeJsonl(output)
+                } ?: error("Unable to open destination")
+                Runtime.hub.emit(
+                    TelemetryEvent(
+                        "system", "diagnostic_export", count, "success",
+                        attributes = mapOf("format" to "jsonl", "uri" to uri.toString())
+                    )
+                )
+            } catch (t: Throwable) {
+                Runtime.hub.emit(
+                    TelemetryEvent(
+                        "system", "diagnostic_export", null, "error",
+                        attributes = mapOf("format" to "jsonl", "error" to t.message)
+                    )
+                )
+            }
+        }.start()
     }
 
     private fun requestRuntimePermissions() {
@@ -211,5 +266,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
-    companion object { private const val REQ_EXPORT = 271 }
+    companion object {
+        private const val REQ_EXPORT_ZIP = 271
+        private const val REQ_EXPORT_JSONL = 272
+    }
 }
