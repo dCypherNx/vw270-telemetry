@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import net.jurgensen.vw270telemetry.Runtime
+import net.jurgensen.vw270telemetry.collectors.ExlapVexCollector
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedOutputStream
@@ -32,7 +33,7 @@ class DiagnosticExporter(private val context: Context) {
     }
 
     private fun manifestJson(): JSONObject = JSONObject().apply {
-        put("format", "vw270-telemetry-diagnostics-v2")
+        put("format", "vw270-telemetry-diagnostics-v3")
         put("created_at_ms", System.currentTimeMillis())
         put("app", appJson())
         put("device", JSONObject().apply {
@@ -45,11 +46,15 @@ class DiagnosticExporter(private val context: Context) {
             put("security_patch", Build.VERSION.SECURITY_PATCH)
         })
         put("android_auto", androidAutoJson())
+        put("exlap", JSONObject().apply {
+            put("vendor_channel", ExlapVexCollector.VENDOR_CHANNEL)
+            put("mode", "read_only_telemetry")
+        })
         put("permissions", permissionsJson())
         put("privacy", JSONObject().apply {
             put("mqtt_credentials_omitted", true)
-            put("provider_credential_like_values_redacted_before_storage", true)
-            put("provider_blob_contents_omitted", true)
+            put("exlap_protocol_credentials_omitted", true)
+            put("exlap_nonce_and_digest_values_redacted", true)
         })
         put("settings", JSONObject().apply {
             put("auto_start", Runtime.prefs.autoStart)
@@ -97,6 +102,7 @@ class DiagnosticExporter(private val context: Context) {
     private fun permissionsJson(): JSONObject {
         val names = buildList {
             add(Manifest.permission.ACCESS_FINE_LOCATION)
+            add(ExlapVexCollector.PERMISSION_VEX)
             if (Build.VERSION.SDK_INT >= 29) {
                 add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 add(Manifest.permission.ACTIVITY_RECOGNITION)
@@ -122,19 +128,19 @@ class DiagnosticExporter(private val context: Context) {
     }
 
     private fun readme(): String = """
-        VW270 Telemetry diagnostic bundle v2
+        VW270 Telemetry diagnostic bundle v3
         ====================================
 
-        manifest.json  app/device/Android Auto/permission metadata and privacy flags.
+        manifest.json  app/device/Android Auto/ExLAP/permission metadata and privacy flags.
         summary.json   event counts and availability/status summary.
         latest.json    latest value/status known for every telemetry key.
         events.jsonl   complete chronological event stream currently retained by the app.
 
-        aa_provider/* contains only read-only getType/query results from selected exported Android
-        Auto content providers. Credential-like values are redacted before persistence and BLOB
-        contents are never stored. MQTT credentials are never exported.
+        exlap/* records the read-only VAG MIB2 ExLAP channel negotiation and any telemetry values
+        received from the head unit. Authentication nonces/digests are redacted and protocol
+        credentials are never exported. MQTT credentials are also never exported.
 
         Local retention is capped by the app at approximately 250,000 events and 7 days.
-        The collector sends no vehicle or Android Auto commands.
+        No vehicle actuator or configuration commands are implemented.
     """.trimIndent()
 }
