@@ -64,7 +64,7 @@ class MainActivity : AppCompatActivity() {
         fun button(s: String, action: () -> Unit) = Button(this).apply { text = s; setOnClickListener { action() } }
         fun input(hint: String, value: String = "") = EditText(this).apply { this.hint = hint; setText(value) }
 
-        root.addView(title("VW270 Telemetry · PoC 0.1"))
+        root.addView(title("VW270 Telemetry · PoC 0.1.2"))
         root.addView(note("Somente leitura. Sem root, sem OBD e sem qualquer comando ao veículo."))
         root.addView(button("1. Conceder permissões do Android") { requestRuntimePermissions() })
         root.addView(button("2. Iniciar coletor persistente") { startCollector() })
@@ -252,7 +252,7 @@ class MainActivity : AppCompatActivity() {
     private fun renderLive() {
         if (!::live.isInitialized) return
         val important = Runtime.hub.latest().filter {
-            it.source in setOf("aa", "car", "fused", "shizuku", "phone_location", "gnss", "system", "bluetooth")
+            it.source in setOf("aa", "car", "fused", "probe", "shizuku", "phone_location", "gnss", "system", "bluetooth")
         }.takeLast(100)
         live.text = important.joinToString("\n") { e ->
             "${e.id.padEnd(34)} ${e.status.padEnd(13)} ${short(e.value)}"
