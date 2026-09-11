@@ -13,8 +13,8 @@ android {
         applicationId = "net.jurgensen.vw270telemetry"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0-poc"
+        versionCode = 2
+        versionName = "0.1.1-poc"
 
         vectorDrawables.useSupportLibrary = true
     }
