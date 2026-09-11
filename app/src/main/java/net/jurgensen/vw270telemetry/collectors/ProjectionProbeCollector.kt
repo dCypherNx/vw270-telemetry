@@ -330,7 +330,7 @@ class ProjectionProbeCollector(private val context: Context) {
                 "dns" to lp?.dnsServers?.map { it.hostAddress },
                 "routes" to lp?.routes?.map { it.toString() },
                 "domains" to lp?.domains,
-                "mtu" to lp?.mtu,
+                "mtu" to if (Build.VERSION.SDK_INT >= 29) lp?.mtu else null,
             )
         }
     }.getOrElse { listOf(mapOf("error" to errorText(it))) }
