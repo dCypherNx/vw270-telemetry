@@ -58,8 +58,6 @@ class DiagnosticExporter(private val context: Context) {
             put("mqtt_port", Runtime.prefs.mqttPort)
             put("mqtt_prefix", Runtime.prefs.mqttPrefix)
             put("publish_raw_diagnostics", Runtime.prefs.publishRawDiagnostics)
-            put("shizuku_auto_probe", Runtime.prefs.shizukuAutoProbe)
-            put("virtual_odometer_m", Runtime.prefs.virtualOdometerM ?: JSONObject.NULL)
         })
     }
 
