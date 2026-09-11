@@ -6,8 +6,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.os.IBinder
 import android.os.Build
+import android.os.IBinder
 import android.os.PowerManager
 import androidx.car.app.connection.CarConnection
 import androidx.core.app.NotificationCompat
@@ -34,8 +34,10 @@ class TelemetryService : Service() {
         promoteForeground(connected = false)
 
         systemCollector = SystemCollector(this).also { it.start() }
-        // Baseline using the exact same surfaces later sampled while projection is active.
-        Thread({ ProjectionProbeCollector(this).snapshotOnce("service_start_baseline") }, "vw270-baseline").start()
+        Thread(
+            { ProjectionProbeCollector(this).snapshotOnce("service_start_baseline") },
+            "vw270-provider-baseline",
+        ).start()
         aaCollector = AaStateCollector(this, ::onCarConnection).also { it.start() }
         Runtime.hub.emit(TelemetryEvent("system", "collector_service", "started"))
     }
@@ -63,44 +65,53 @@ class TelemetryService : Service() {
             systemCollector?.snapshotNow()
             promoteForeground(connected = true)
             startDrivingCollectors(if (type == CarConnection.CONNECTION_TYPE_PROJECTION) "projection" else "native")
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(NOTIFICATION_ID, notification("Android Auto conectado • coleta máxima"))
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, notification("Android Auto conectado • coleta ativa"))
         } else {
             stopDrivingCollectors("car_disconnected")
-            // Wait briefly so USB/audio/network teardown is reflected in a post-disconnect baseline.
             Thread({
-                try { Thread.sleep(2_000L) } catch (_: InterruptedException) {}
+                try {
+                    Thread.sleep(2_000L)
+                } catch (_: InterruptedException) {
+                }
+                systemCollector?.snapshotNow()
                 ProjectionProbeCollector(this).snapshotOnce("post_disconnect")
             }, "vw270-post-disconnect").start()
             promoteForeground(connected = false)
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(NOTIFICATION_ID, notification("Aguardando Android Auto"))
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, notification("Aguardando Android Auto"))
         }
     }
 
     private fun promoteForeground(connected: Boolean) {
-        val n = notification(if (connected) "Android Auto conectado • coleta máxima" else "Aguardando Android Auto")
+        val notification = notification(if (connected) "Android Auto conectado • coleta ativa" else "Aguardando Android Auto")
         if (Build.VERSION.SDK_INT >= 29) {
             var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (connected && hasBackgroundLocation()) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
             }
             try {
-                ServiceCompat.startForeground(this, NOTIFICATION_ID, n, type)
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
             } catch (t: Throwable) {
                 ServiceCompat.startForeground(
-                    this, NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
                 )
                 Runtime.hub.emit(
                     TelemetryEvent(
-                        "system", "foreground_type", type, "degraded",
-                        attributes = mapOf("error" to "${t.javaClass.simpleName}: ${t.message}")
+                        "system",
+                        "foreground_type",
+                        type,
+                        "degraded",
+                        attributes = mapOf("error" to "${t.javaClass.simpleName}: ${t.message}"),
                     )
                 )
             }
         } else {
             @Suppress("DEPRECATION")
-            startForeground(NOTIFICATION_ID, n)
+            startForeground(NOTIFICATION_ID, notification)
         }
     }
 
@@ -119,11 +130,14 @@ class TelemetryService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+        }
         phoneSensors = PhoneSensorCollector(this).also { it.start() }
         location = LocationCollector(this).also { it.start() }
         projectionProbe = ProjectionProbeCollector(this).also { it.start(reason) }
-        Runtime.hub.emit(TelemetryEvent("system", "driving_collectors", true, attributes = mapOf("reason" to reason)))
+        Runtime.hub.emit(
+            TelemetryEvent("system", "driving_collectors", true, attributes = mapOf("reason" to reason))
+        )
     }
 
     private fun stopDrivingCollectors(reason: String) {
@@ -135,15 +149,24 @@ class TelemetryService : Service() {
         projectionProbe = null
         phoneSensors = null
         location = null
-        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Throwable) {
+        }
         wakeLock = null
-        Runtime.hub.emit(TelemetryEvent("system", "driving_collectors", false, attributes = mapOf("reason" to reason)))
+        Runtime.hub.emit(
+            TelemetryEvent("system", "driving_collectors", false, attributes = mapOf("reason" to reason))
+        )
     }
 
     private fun createChannel() {
-        val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, getString(R.string.notification_channel), NotificationManager.IMPORTANCE_LOW)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel),
+                NotificationManager.IMPORTANCE_LOW,
+            )
         )
     }
 
@@ -155,8 +178,10 @@ class TelemetryService : Service() {
         .setOnlyAlertOnce(true)
         .setContentIntent(
             PendingIntent.getActivity(
-                this, 0, Intent(this, MainActivity::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                this,
+                0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         )
         .build()
