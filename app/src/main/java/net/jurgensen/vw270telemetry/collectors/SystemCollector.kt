@@ -1,6 +1,7 @@
 package net.jurgensen.vw270telemetry.collectors
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothHeadset
@@ -57,6 +58,7 @@ class SystemCollector(private val context: Context) {
         snapshotUsb()
     }
 
+    @SuppressLint("MissingPermission")
     fun stop() {
         try {
             context.unregisterReceiver(batteryReceiver)
@@ -139,6 +141,7 @@ class SystemCollector(private val context: Context) {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun snapshotBluetoothProfiles() {
         if (!hasBluetoothPermission()) {
             Runtime.hub.emit(TelemetryEvent("bluetooth", "state", null, "permission_denied"))
@@ -148,14 +151,15 @@ class SystemCollector(private val context: Context) {
         emitBluetoothAdapter()
         try {
             a.getProfileProxy(context, profileListener, BluetoothProfile.A2DP)
-        } catch (_: Throwable) {
+        } catch (_: SecurityException) {
         }
         try {
             a.getProfileProxy(context, profileListener, BluetoothProfile.HEADSET)
-        } catch (_: Throwable) {
+        } catch (_: SecurityException) {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun emitBluetoothAdapter() {
         if (!hasBluetoothPermission()) {
             Runtime.hub.emit(TelemetryEvent("bluetooth", "adapter", null, "permission_denied"))
@@ -186,6 +190,7 @@ class SystemCollector(private val context: Context) {
         )
     }
 
+    @SuppressLint("MissingPermission")
     private fun emitBluetoothProfile(profile: Int, proxy: BluetoothProfile) {
         if (!hasBluetoothPermission()) return
         val connected = runCatching {
