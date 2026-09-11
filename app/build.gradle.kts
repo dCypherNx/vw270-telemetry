@@ -34,8 +34,8 @@ android {
         applicationId = "net.jurgensen.vw270telemetry"
         minSdk = 28
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.1.3-poc"
+        versionCode = 5
+        versionName = "0.1.4-poc"
 
         vectorDrawables.useSupportLibrary = true
     }
@@ -77,12 +77,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
     // The legacy SDK AAR contains resource syntax that modern AAPT2 rejects. We intentionally
-    // consume only classes.jar: the ExLAP PoC needs the vendor-extension Java API, not its UI.
+    // consume only classes.jar: ExLAP needs its vendor-extension Java API, not the obsolete UI.
     implementation(files(legacyAautoSdkJar))
-
-    // Optional no-root diagnostic layer. Retained until the ExLAP path is proven on-device.
-    implementation("dev.rikka.shizuku:api:13.1.5")
-    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
 
 tasks.named("preBuild").configure {
