@@ -17,7 +17,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
-    <!-- Package visibility is required for Android Auto provider/package diagnostics. -->
+    <!-- Legacy Android Auto permission used by the MIB2 vendor-extension API. -->
+    <uses-permission android:name="com.google.android.gms.permission.CAR_VENDOR_EXTENSION" />
+
     <queries>
         <package android:name="com.google.android.projection.gearhead" />
     </queries>
@@ -29,6 +31,11 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.VW270Telemetry">
+
+        <!-- Legacy Android Auto service declaration: does not add a launcher entry on the HU. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
 
         <activity
             android:name=".MainActivity"
@@ -53,13 +60,5 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     </application>
 </manifest>

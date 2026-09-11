@@ -18,10 +18,9 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import net.jurgensen.vw270telemetry.collectors.ExlapVexCollector
 import net.jurgensen.vw270telemetry.data.DiagnosticExporter
 import net.jurgensen.vw270telemetry.data.TelemetryEvent
-import net.jurgensen.vw270telemetry.shizuku.ShizukuProbe
-import rikka.shizuku.Shizuku
 
 class MainActivity : AppCompatActivity() {
     private lateinit var live: TextView
@@ -32,25 +31,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mqttUser: EditText
     private lateinit var mqttPass: EditText
     private lateinit var mqttPrefix: EditText
-    private lateinit var shizukuState: TextView
 
     private val hubListener: (TelemetryEvent) -> Unit = { renderLive() }
-    private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { _, _ ->
-        runOnUiThread { renderShizuku() }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener)
         setContentView(buildUi())
         Runtime.hub.addListener(hubListener)
         renderLive()
-        renderShizuku()
     }
 
     override fun onDestroy() {
         Runtime.hub.removeListener(hubListener)
-        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener)
         super.onDestroy()
     }
 
@@ -65,25 +57,20 @@ class MainActivity : AppCompatActivity() {
         fun input(hint: String, value: String = "") = EditText(this).apply { this.hint = hint; setText(value) }
 
         root.addView(title("VW270 Telemetry · ${BuildConfig.VERSION_NAME}"))
-        root.addView(note("Somente leitura. Sem root, sem OBD e sem qualquer comando ao veículo."))
-        root.addView(note("0.1.3: sonda focada nos providers exportados do Android Auto; redes, áudio, input genérico e Car App host foram removidos do caminho investigativo."))
-        root.addView(button("1. Conceder permissões do Android") { requestRuntimePermissions() })
+        root.addView(note("Telemetria somente leitura. Sem root e sem OBD; nenhum comando de atuação/configuração do veículo é implementado."))
+        root.addView(note("0.1.4: prova direta do canal VAG MIB2 ExLAP com Android Auto. A sonda antiga de providers e o fallback Shizuku foram removidos."))
+        root.addView(button("1. Conceder permissões do Android / ExLAP") { requestRuntimePermissions() })
         root.addView(button("2. Iniciar coletor persistente") { startCollector() })
         root.addView(button("Parar coletor") { stopCollector() })
         root.addView(button("Liberar otimização de bateria") { requestBatteryExemption() })
-        root.addView(button("Localização em segundo plano (zero toque)") { requestBackgroundLocation() })
+        root.addView(button("Localização em segundo plano (fallback GNSS)") { requestBackgroundLocation() })
 
-        root.addView(title("Shizuku · fallback opcional"))
-        shizukuState = note("")
-        root.addView(shizukuState)
-        root.addView(note("Não é necessário para a rodada 0.1.3. Mantido apenas como próxima camada, caso os providers públicos não sejam suficientes."))
-        root.addView(button("Solicitar permissão Shizuku") { ShizukuProbe(this).requestPermission(); renderShizuku() })
-        root.addView(button("Executar snapshot read-only") {
-            Thread { ShizukuProbe(this).runSnapshot("manual_ui"); runOnUiThread { renderLive() } }.start()
-        })
+        root.addView(title("ExLAP / MIB2"))
+        root.addView(note("Canal alvo: ${ExlapVexCollector.VENDOR_CHANNEL}. O app negocia somente sessão, autenticação, descoberta e assinaturas necessárias para receber telemetria."))
+        root.addView(note("O resultado decisivo aparece abaixo como exlap/channel, exlap/authentication, exlap/directory, exlap/schema e, se suportado pela sua central, valores exlap/* reais do veículo."))
 
         root.addView(title("Logs para análise"))
-        root.addView(note("O ZIP inclui a sequência cronológica e os resultados dos providers. Valores com aparência de credencial são redigidos antes de serem persistidos."))
+        root.addView(note("O ZIP registra a sequência do handshake ExLAP e os valores recebidos. Nonces e digests de autenticação são redigidos; as credenciais de protocolo não são exportadas."))
         root.addView(button("Exportar pacote de diagnóstico (.zip)") { exportDiagnosticBundle() })
         root.addView(button("Exportar eventos brutos (.jsonl)") { exportRawEvents() })
         root.addView(note("Retenção local: até ~250 mil eventos e 7 dias. O arquivo é salvo pelo seletor de documentos do Android."))
@@ -98,7 +85,7 @@ class MainActivity : AppCompatActivity() {
         mqttPrefix = input("Prefixo", Runtime.prefs.mqttPrefix)
         listOf(mqttEnabled, mqttTls, mqttHost, mqttPort, mqttUser, mqttPass, mqttPrefix).forEach(root::addView)
         root.addView(button("Salvar MQTT") { saveMqtt() })
-        root.addView(note("Diagnósticos aa_provider/probe/usb permanecem somente no SQLite local por padrão."))
+        root.addView(note("Valores exlap/* são publicáveis por MQTT; eventos internos de handshake ficam somente no diagnóstico local."))
 
         root.addView(title("Estado ao vivo"))
         live = TextView(this).apply {
@@ -189,16 +176,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestRuntimePermissions() {
-        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            ExlapVexCollector.PERMISSION_VEX,
+        )
         if (Build.VERSION.SDK_INT >= 29) permissions += Manifest.permission.ACTIVITY_RECOGNITION
         if (Build.VERSION.SDK_INT >= 31) permissions += Manifest.permission.BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
-        requestPermissions(
-            permissions.filter {
-                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-            }.toTypedArray(),
-            27,
-        )
+        val missing = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 27)
     }
 
     private fun startCollector() {
@@ -239,27 +227,22 @@ class MainActivity : AppCompatActivity() {
         renderLive()
     }
 
-    private fun renderShizuku() {
-        val state = ShizukuProbe(this).state()
-        shizukuState.text = "alive=${state["alive"]}  permission=${state["permission"]}  uid=${state["server_uid"]}"
-    }
-
     private fun renderLive() {
         if (!::live.isInitialized) return
         val important = Runtime.hub.latest().filter {
             it.source in setOf(
-                "aa", "aa_provider", "fused", "probe", "usb", "bluetooth", "shizuku",
+                "exlap", "aa", "fused", "usb", "bluetooth",
                 "phone_location", "gnss", "system",
             )
-        }.takeLast(120)
+        }.takeLast(180)
         live.text = important.joinToString("\n") { event ->
-            "${event.id.padEnd(38)} ${event.status.padEnd(17)} ${short(event.value)}"
+            "${event.id.padEnd(46)} ${event.status.padEnd(17)} ${short(event.value)}"
         }
     }
 
     private fun short(value: Any?): String = when (value) {
         null -> "—"
-        else -> value.toString().replace('\n', ' ').take(160)
+        else -> value.toString().replace('\n', ' ').take(180)
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()

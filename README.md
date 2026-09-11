@@ -1,78 +1,66 @@
 # VW270 Telemetry
 
-PoC Android para extrair o **máximo de telemetria observável sem root e sem OBD** de um VW Polo/VW270 durante uma sessão Android Auto.
+PoC Android para obter telemetria de um VW Polo/VW270 **sem root e sem OBD**, usando a sessão Android Auto.
 
-O projeto é deliberadamente **read-only**: não envia comandos ao veículo, não abre CAN/OBD, não altera Android Auto/Google Play Services e não disputa a conexão USB com a head unit.
+O projeto é deliberadamente **read-only**: não implementa comandos de atuação/configuração do veículo e não disputa a conexão USB com a head unit.
 
-## Estado atual: 0.1.3-poc
+## Estado atual: 0.1.4-poc · VAG MIB2 ExLAP
 
-O teste real da `0.1.2-poc` no S25+/Android 16 confirmou:
+Os testes 0.1.2/0.1.3 no S25+/Android 16 provaram que o telefone enxerga a projeção Android Auto, USB accessory e contexto de sessão, mas não recebe telemetria real pelas APIs públicas que sondamos. O `CarAppService` sideloadado também não é apresentado pela HU sem distribuição confiável pelo Google Play.
 
-- `CarConnection` detecta `projection` de forma confiável;
-- a HU cria um Android Open Accessory identificado como **Android Auto**;
-- o Android Auto cria seu display virtual e rotas internas de áudio;
-- não surge uma interface de rede específica da HU;
-- não surge um `InputDevice` da HU;
-- o nosso `CarAppService` instalado por sideload não é apresentado pela HU, portanto `CarHardwareManager` não é um caminho operacional neste cenário sem distribuição confiável pelo Google Play.
+A identificação da central `5G0 035 280 C` mudou o alvo: ela pertence à família Volkswagen MIB2, para a qual existe o canal de vendor extension do Android Auto chamado:
 
-Com isso, a `0.1.3` removeu do caminho investigativo o Car App projetado, Car Hardware, Usage Stats, Notification Listener e os snapshots genéricos de rede/input/áudio/media-route. O foco agora é a **superfície de providers exportados pelo próprio Android Auto no telefone**.
+`com.vwag.infotainment.gal.exlap`
 
-## Sonda Android Auto 0.1.3
+ExLAP é usado por implementações VAG MIB2 para disponibilizar dados reais do veículo à camada Android Auto. A `0.1.4` abandona a investigação genérica de providers/Shizuku e testa diretamente esse caminho.
 
-Quando `aa/connection_type` muda para `projection`, o app:
+## Como a 0.1.4 funciona
 
-1. inventaria os `ContentProvider` exportados pelo pacote `com.google.android.projection.gearhead`, incluindo permissões, `pathPermissions`, `uriPermissionPatterns`, processo e chaves de metadata;
-2. usa somente operações read-only (`getType()` e `query()`);
-3. consulta de forma limitada os providers-alvo:
-   - `androidx.car.app.connection` — estado oficial da projeção;
-   - `com.google.android.gearhead.shared_preferences_provider` — configuração/estado compartilhado exposto pelo Android Auto;
-   - `com.google.android.projection.gearhead.troubleshooter_provider` — superfície de diagnóstico/troubleshooting;
-   - `com.google.android.projection.gearhead.color_provider` — controle simples para validar acesso a providers do processo de projeção;
-4. repete a leitura no início, em +5 s, +15 s e depois a cada 30 s;
-5. registra também um snapshot imediatamente antes da desconexão e outro após a desmontagem da sessão.
+O app usa a API legada de Android Auto Vendor Extension apenas para abrir o canal ExLAP. O AAR antigo do SDK contém recursos incompatíveis com o AAPT2 atual, então o build extrai **somente `classes.jar`** do SDK legado; nenhum recurso/UI antigo é incorporado.
 
-Providers relacionados a microfone, arquivos de bugreport, ícones e developer-settings são explicitamente ignorados porque não são relevantes para telemetria estruturada ou podem expor mídia/arquivos.
+Ao conseguir acesso ao canal, a sonda executa somente o protocolo necessário para receber dados:
 
-As consultas são limitadas a 20 linhas e 32 colunas por provider. BLOBs nunca são persistidos; campos com aparência de senha/token/credencial são redigidos antes de entrar no SQLite ou no ZIP de diagnóstico.
+1. abre a sessão ExLAP;
+2. negocia protocolo/capabilities;
+3. autentica usando SHA-256 (`useHash="sha256"`);
+4. solicita o diretório de URLs;
+5. lê interfaces/schema;
+6. assina os objetos anunciados pela própria HU;
+7. persiste e publica os `Dat` recebidos como `exlap/*`.
 
-## Transporte ainda observado
+Não existem operações de escrita em parâmetros do veículo. Os únicos frames enviados são handshake, autenticação, descoberta e `Subscribe`.
 
-USB e Bluetooth permanecem como contexto de sessão, não como fontes de telemetria do veículo:
+## Resultado decisivo
 
-- USB registra devices/accessories e apenas `hasPermission`; o app **não abre** o accessory Android Auto;
-- Bluetooth registra dispositivos pareados/conectados e UUIDs SDP já disponíveis no sistema, sem endereço MAC no log novo.
+Na tela **Estado ao vivo**, a sequência esperada é aproximadamente:
 
-Rede, Wi-Fi, áudio e input genéricos foram removidos da sonda porque o primeiro teste real não mostrou um canal útil de telemetria do VW270 nessas superfícies.
+- `exlap/permission = true`;
+- `exlap/channel = true`;
+- `exlap/authentication = true`;
+- `exlap/directory = <quantidade de URLs>`;
+- `exlap/schema = <quantidade de campos>`;
+- depois, valores `exlap/*` variando com o carro.
 
-## Telemetria do telefone
+Se `exlap/channel` ficar `unavailable`, a HU/Android Auto atual não está anunciando o vendor channel para o nosso processo. Se o canal abrir, mas a autenticação falhar, o problema está no protocolo/credenciais/compatibilidade de firmware. Se surgirem valores `exlap/*`, teremos prova de telemetria real originada do veículo.
 
-Durante a projeção permanecem ativos:
+## Fallback do telefone
+
+Durante projeção permanecem disponíveis, separadamente:
 
 - Fused Location/GNSS;
 - satélites GNSS;
 - sensores do telefone;
 - velocidade estimada por GNSS;
 - bateria/estado térmico;
-- Bluetooth e USB como contexto de transporte.
+- USB/Bluetooth como contexto.
 
-Essas fontes são úteis operacionalmente mesmo quando nenhum valor real do veículo é encontrado.
-
-## Shizuku
-
-Shizuku continua no projeto como **fallback opcional**, mas não é necessário para o teste `0.1.3`. A estratégia é esgotar primeiro os providers públicos e, somente se necessário, avançar para sondas Binder estreitas e read-only.
-
-Não existe executor shell genérico no app.
+Esses dados nunca devem ser confundidos com `exlap/*`, que é o namespace reservado para a telemetria recebida da HU.
 
 ## Logs para análise
 
 Todos os eventos são persistidos em `telemetry.db`, com retenção aproximada de 7 dias / 250 mil eventos.
 
-Na tela **Logs para análise**:
-
-- **Exportar pacote de diagnóstico (.zip)** gera `manifest.json`, `summary.json`, `latest.json`, `events.jsonl` e README;
-- **Exportar eventos brutos (.jsonl)** gera apenas a sequência cronológica.
-
-O formato atual do pacote é `vw270-telemetry-diagnostics-v2`. Credenciais MQTT não são exportadas e valores de provider potencialmente sensíveis são redigidos antes do armazenamento.
+O pacote ZIP (`vw270-telemetry-diagnostics-v3`) contém `manifest.json`, `summary.json`, `latest.json`, `events.jsonl` e README. Credenciais MQTT e credenciais de protocolo ExLAP não são exportadas; nonce/cnonce/digest são redigidos nos registros de handshake.
 
 ## MQTT / Home Assistant
 
@@ -82,9 +70,9 @@ MQTT publica em:
 - `car/vw270/event`;
 - `car/vw270/availability`.
 
-Diagnósticos brutos como `aa_provider/*`, `probe/*` e `usb/*` permanecem somente no SQLite por padrão.
+Valores `exlap/*` são publicáveis normalmente; eventos internos de handshake ficam somente no diagnóstico local.
 
-## Build e APK
+## Build
 
 Requisitos: JDK 17, Gradle 8.13 e Android SDK 36.
 
@@ -93,22 +81,16 @@ gradle :app:assembleDebug
 gradle :app:lintDebug
 ```
 
-A GitHub Action **Build Android APK** roda em push/PR e manualmente. Um `main` válido atualiza a pre-release fixa:
+A GitHub Action **Build Android APK** roda em push/PR e manualmente. Builds válidos em `main` atualizam a pre-release fixa **VW270 Telemetry · Latest Debug** com APK e SHA-256.
 
-**Releases → VW270 Telemetry · Latest Debug**
+## Primeiro teste da 0.1.4
 
-Ela contém o APK direto e o respectivo SHA-256; o artifact de CI também permanece disponível temporariamente.
+1. Instale a `0.1.4-poc`.
+2. Abra o app e toque **Conceder permissões do Android / ExLAP**.
+3. Inicie o coletor persistente ainda desconectado do carro.
+4. Conecte o Android Auto normalmente; não procure nem abra o VW270 Telemetry na HU.
+5. Observe `exlap/*` no estado ao vivo e mantenha a sessão ativa por 1–2 minutos.
+6. Faça um pequeno deslocamento se `exlap/channel` e `authentication` estiverem com sucesso.
+7. Desconecte, espere alguns segundos e exporte o ZIP de diagnóstico.
 
-## Instalação / primeiro teste da 0.1.3
-
-1. Instale a `0.1.3-poc`.
-2. Conceda localização, atividade física, Bluetooth e notificações quando solicitadas.
-3. Libere otimização de bateria e, para teste em segundo plano, localização sempre permitida.
-4. Inicie o coletor persistente **antes de conectar ao carro**.
-5. Espere alguns segundos desconectado para registrar o baseline.
-6. Conecte o Android Auto normalmente, sem procurar o VW270 Telemetry na HU.
-7. Deixe a sessão ativa por pelo menos 60–90 s.
-8. Desconecte e espere pelo menos 5 s.
-9. Exporte o ZIP de diagnóstico e analise `aa_provider/*`, `probe/provider_inventory`, `usb/transport` e `bluetooth/*`.
-
-O resultado mais importante desta rodada é descobrir se `shared_preferences` ou `troubleshooter` revelam estado/capabilities da sessão que mudam de forma correlacionada com a HU. Se esses providers forem bloqueados ou exigirem paths específicos, o inventário de `pathPermissions`/`uriPermissionPatterns` orientará a próxima sonda sem voltar a uma varredura ampla.
+Esta rodada tem um objetivo único: determinar se a combinação Android Auto atual + MIB2 `5G0035280C` ainda permite que um APK sideloadado receba o canal ExLAP.
