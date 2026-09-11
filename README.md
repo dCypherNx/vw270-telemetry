@@ -60,13 +60,20 @@ A PoC detecta o binder do Shizuku, versão, UID e estado da permissão. A primei
 
 Shizuku não é necessário para a telemetria normal.
 
-## Persistência e MQTT
+## Persistência, logs e MQTT
 
-Todos os eventos são gravados em `telemetry.db`. A política atual usa retenção de 7 dias, limite aproximado de 250 mil eventos e exportação manual de até 50 mil eventos em JSON Lines.
+Todos os eventos são gravados em `telemetry.db`. A política atual usa retenção de 7 dias e limite aproximado de 250 mil eventos.
+
+Na tela **Logs para análise** existem dois exports pelo seletor de documentos do Android:
+
+- **pacote de diagnóstico `.zip`** com `events.jsonl`, `summary.json`, `latest.json`, `manifest.json` e README do formato;
+- **eventos brutos `.jsonl`** com o fluxo cronológico completo ainda retido localmente.
+
+O `manifest.json` inclui versão do app, aparelho/Android, versão detectada do Android Auto, permissões e configurações não sensíveis. Host, usuário e senha MQTT não são incluídos no pacote.
 
 MQTT publica em `car/vw270/<source>/<key>`, `car/vw270/event` e `car/vw270/availability`, com MQTT Discovery para valores escalares úteis ao Home Assistant.
 
-## Build
+## Build e APK
 
 Requisitos: JDK 17, Gradle 8.13 e Android SDK 36.
 
@@ -76,7 +83,11 @@ gradle :app:assembleDebug
 
 O APK local fica em `app/build/outputs/apk/debug/app-debug.apk`.
 
-A esteira em `.github/workflows/android.yml` compila o APK em cada push/PR e também pode ser executada manualmente em **Actions → Build Android APK → Run workflow**. O APK de debug e seu SHA-256 ficam disponíveis como artifact por 14 dias.
+A esteira em `.github/workflows/android.yml` compila o APK em cada push/PR e também pode ser executada manualmente em **Actions → Build Android APK → Run workflow**.
+
+- todo build mantém APK + SHA-256 como artifact de CI por 14 dias;
+- um build iniciado por **Run workflow** cria uma **GitHub pre-release** e anexa o arquivo `.apk` diretamente, além do `.sha256`;
+- portanto, para obter um APK sob demanda: execute a workflow e depois abra **Releases**.
 
 ## Instalação / primeira configuração
 
@@ -104,4 +115,4 @@ Este projeto não lê CAN/ECU, não usa OBD, não requer root, não injeta códi
 
 ## Estado
 
-`0.1.0-poc` — primeiro probe instrumentado para S25+/Android 16 + Android Auto + VW270.
+`0.1.1-poc` — probe instrumentado para S25+/Android 16 + Android Auto + VW270, com exportação de diagnóstico reproduzível.
