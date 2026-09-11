@@ -15,6 +15,7 @@ import androidx.core.app.ServiceCompat
 import net.jurgensen.vw270telemetry.collectors.AaStateCollector
 import net.jurgensen.vw270telemetry.collectors.LocationCollector
 import net.jurgensen.vw270telemetry.collectors.PhoneSensorCollector
+import net.jurgensen.vw270telemetry.collectors.ProjectionProbeCollector
 import net.jurgensen.vw270telemetry.collectors.SystemCollector
 import net.jurgensen.vw270telemetry.data.TelemetryEvent
 
@@ -23,6 +24,7 @@ class TelemetryService : Service() {
     private var aaCollector: AaStateCollector? = null
     private var phoneSensors: PhoneSensorCollector? = null
     private var location: LocationCollector? = null
+    private var projectionProbe: ProjectionProbeCollector? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var drivingCollectors = false
 
@@ -42,7 +44,7 @@ class TelemetryService : Service() {
     }
 
     override fun onDestroy() {
-        stopDrivingCollectors()
+        stopDrivingCollectors("service_destroyed")
         aaCollector?.stop()
         systemCollector?.stop()
         aaCollector = null
@@ -58,11 +60,11 @@ class TelemetryService : Service() {
         if (type == CarConnection.CONNECTION_TYPE_PROJECTION || type == CarConnection.CONNECTION_TYPE_NATIVE) {
             systemCollector?.snapshotNow()
             promoteForeground(connected = true)
-            startDrivingCollectors()
+            startDrivingCollectors(if (type == CarConnection.CONNECTION_TYPE_PROJECTION) "projection" else "native")
             val manager = getSystemService(NotificationManager::class.java)
             manager.notify(NOTIFICATION_ID, notification("Android Auto conectado • coleta máxima"))
         } else {
-            stopDrivingCollectors()
+            stopDrivingCollectors("car_disconnected")
             promoteForeground(connected = false)
             val manager = getSystemService(NotificationManager::class.java)
             manager.notify(NOTIFICATION_ID, notification("Aguardando Android Auto"))
@@ -101,7 +103,7 @@ class TelemetryService : Service() {
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
-    private fun startDrivingCollectors() {
+    private fun startDrivingCollectors(reason: String) {
         if (drivingCollectors) return
         drivingCollectors = true
         try {
@@ -113,19 +115,22 @@ class TelemetryService : Service() {
         } catch (_: Throwable) {}
         phoneSensors = PhoneSensorCollector(this).also { it.start() }
         location = LocationCollector(this).also { it.start() }
-        Runtime.hub.emit(TelemetryEvent("system", "driving_collectors", true))
+        projectionProbe = ProjectionProbeCollector(this).also { it.start(reason) }
+        Runtime.hub.emit(TelemetryEvent("system", "driving_collectors", true, attributes = mapOf("reason" to reason)))
     }
 
-    private fun stopDrivingCollectors() {
+    private fun stopDrivingCollectors(reason: String) {
         if (!drivingCollectors) return
         drivingCollectors = false
+        projectionProbe?.stop(reason)
         phoneSensors?.stop()
         location?.stop()
+        projectionProbe = null
         phoneSensors = null
         location = null
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Throwable) {}
         wakeLock = null
-        Runtime.hub.emit(TelemetryEvent("system", "driving_collectors", false))
+        Runtime.hub.emit(TelemetryEvent("system", "driving_collectors", false, attributes = mapOf("reason" to reason)))
     }
 
     private fun createChannel() {
