@@ -34,6 +34,8 @@ class TelemetryService : Service() {
         promoteForeground(connected = false)
 
         systemCollector = SystemCollector(this).also { it.start() }
+        // Baseline using the exact same surfaces later sampled while projection is active.
+        Thread({ ProjectionProbeCollector(this).snapshotOnce("service_start_baseline") }, "vw270-baseline").start()
         aaCollector = AaStateCollector(this, ::onCarConnection).also { it.start() }
         Runtime.hub.emit(TelemetryEvent("system", "collector_service", "started"))
     }
@@ -65,6 +67,11 @@ class TelemetryService : Service() {
             manager.notify(NOTIFICATION_ID, notification("Android Auto conectado • coleta máxima"))
         } else {
             stopDrivingCollectors("car_disconnected")
+            // Wait briefly so USB/audio/network teardown is reflected in a post-disconnect baseline.
+            Thread({
+                try { Thread.sleep(2_000L) } catch (_: InterruptedException) {}
+                ProjectionProbeCollector(this).snapshotOnce("post_disconnect")
+            }, "vw270-post-disconnect").start()
             promoteForeground(connected = false)
             val manager = getSystemService(NotificationManager::class.java)
             manager.notify(NOTIFICATION_ID, notification("Aguardando Android Auto"))
