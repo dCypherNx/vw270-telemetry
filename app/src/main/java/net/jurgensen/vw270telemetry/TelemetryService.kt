@@ -13,18 +13,18 @@ import androidx.car.app.connection.CarConnection
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import net.jurgensen.vw270telemetry.collectors.AaStateCollector
+import net.jurgensen.vw270telemetry.collectors.ExlapVexCollector
 import net.jurgensen.vw270telemetry.collectors.LocationCollector
 import net.jurgensen.vw270telemetry.collectors.PhoneSensorCollector
-import net.jurgensen.vw270telemetry.collectors.ProjectionProbeCollector
 import net.jurgensen.vw270telemetry.collectors.SystemCollector
 import net.jurgensen.vw270telemetry.data.TelemetryEvent
 
 class TelemetryService : Service() {
     private var systemCollector: SystemCollector? = null
     private var aaCollector: AaStateCollector? = null
+    private var exlapCollector: ExlapVexCollector? = null
     private var phoneSensors: PhoneSensorCollector? = null
     private var location: LocationCollector? = null
-    private var projectionProbe: ProjectionProbeCollector? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var drivingCollectors = false
 
@@ -34,11 +34,8 @@ class TelemetryService : Service() {
         promoteForeground(connected = false)
 
         systemCollector = SystemCollector(this).also { it.start() }
-        Thread(
-            { ProjectionProbeCollector(this).snapshotOnce("service_start_baseline") },
-            "vw270-provider-baseline",
-        ).start()
         aaCollector = AaStateCollector(this, ::onCarConnection).also { it.start() }
+        exlapCollector = ExlapVexCollector(this).also { it.start() }
         Runtime.hub.emit(TelemetryEvent("system", "collector_service", "started"))
     }
 
@@ -49,8 +46,10 @@ class TelemetryService : Service() {
 
     override fun onDestroy() {
         stopDrivingCollectors("service_destroyed")
+        exlapCollector?.stop()
         aaCollector?.stop()
         systemCollector?.stop()
+        exlapCollector = null
         aaCollector = null
         systemCollector = null
         Runtime.mqtt.close()
@@ -66,25 +65,18 @@ class TelemetryService : Service() {
             promoteForeground(connected = true)
             startDrivingCollectors(if (type == CarConnection.CONNECTION_TYPE_PROJECTION) "projection" else "native")
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, notification("Android Auto conectado • coleta ativa"))
+                .notify(NOTIFICATION_ID, notification("Android Auto conectado • ExLAP ativo"))
         } else {
             stopDrivingCollectors("car_disconnected")
-            Thread({
-                try {
-                    Thread.sleep(2_000L)
-                } catch (_: InterruptedException) {
-                }
-                systemCollector?.snapshotNow()
-                ProjectionProbeCollector(this).snapshotOnce("post_disconnect")
-            }, "vw270-post-disconnect").start()
+            systemCollector?.snapshotNow()
             promoteForeground(connected = false)
             getSystemService(NotificationManager::class.java)
-                .notify(NOTIFICATION_ID, notification("Aguardando Android Auto"))
+                .notify(NOTIFICATION_ID, notification("Aguardando Android Auto / ExLAP"))
         }
     }
 
     private fun promoteForeground(connected: Boolean) {
-        val notification = notification(if (connected) "Android Auto conectado • coleta ativa" else "Aguardando Android Auto")
+        val notification = notification(if (connected) "Android Auto conectado • ExLAP ativo" else "Aguardando Android Auto / ExLAP")
         if (Build.VERSION.SDK_INT >= 29) {
             var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
             if (connected && hasBackgroundLocation()) {
@@ -134,7 +126,6 @@ class TelemetryService : Service() {
         }
         phoneSensors = PhoneSensorCollector(this).also { it.start() }
         location = LocationCollector(this).also { it.start() }
-        projectionProbe = ProjectionProbeCollector(this).also { it.start(reason) }
         Runtime.hub.emit(
             TelemetryEvent("system", "driving_collectors", true, attributes = mapOf("reason" to reason))
         )
@@ -143,10 +134,8 @@ class TelemetryService : Service() {
     private fun stopDrivingCollectors(reason: String) {
         if (!drivingCollectors) return
         drivingCollectors = false
-        projectionProbe?.stop(reason)
         phoneSensors?.stop()
         location?.stop()
-        projectionProbe = null
         phoneSensors = null
         location = null
         try {
