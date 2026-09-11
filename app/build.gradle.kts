@@ -45,7 +45,11 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
+
+    // Car App core APIs + Android Auto projected host implementation.
+    implementation("androidx.car.app:app:1.7.0")
     implementation("androidx.car.app:app-projected:1.7.0")
+
     implementation("com.google.android.gms:play-services-location:21.4.0")
 
     // Optional no-root diagnostic layer. Requires the Shizuku app/service on the phone.
