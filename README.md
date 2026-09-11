@@ -1,77 +1,88 @@
 # VW270 Telemetry
 
-> **Compatibilidade Android Auto:** o serviço projetado usa a categoria `IOT`, portanto declara **Car API mínima 6**. A coleta de hardware continua condicionada ao que o host/OEM realmente publica.
+PoC Android para extrair o **máximo de telemetria observável sem root e sem OBD** de um VW Polo/VW270 durante uma sessão Android Auto.
 
-PoC Android para extrair o **máximo de telemetria disponível sem root e sem OBD** de um VW Polo/VW270 usando Android Auto, APIs do telefone e uma camada diagnóstica opcional via Shizuku.
+O projeto é deliberadamente **read-only**: não envia comandos ao veículo, não abre CAN/OBD, não altera Android Auto/Google Play Services e não disputa a conexão USB com a head unit.
 
-O projeto é propositalmente **read-only**: não envia comandos ao veículo, não usa CAN/OBD, não altera Google Play Services/Android Auto e não depende de código na head unit.
+## Estado atual: 0.1.3-poc
 
-## Objetivo
+O teste real da `0.1.2-poc` no S25+/Android 16 confirmou:
 
-Substituir a coleta pouco previsível dos sensores automotivos do Home Assistant Companion por um coletor dedicado, persistente e observável. O APK foi desenhado para responder empiricamente duas perguntas:
+- `CarConnection` detecta `projection` de forma confiável;
+- a HU cria um Android Open Accessory identificado como **Android Auto**;
+- o Android Auto cria seu display virtual e rotas internas de áudio;
+- não surge uma interface de rede específica da HU;
+- não surge um `InputDevice` da HU;
+- o nosso `CarAppService` instalado por sideload não é apresentado pela HU, portanto `CarHardwareManager` não é um caminho operacional neste cenário sem distribuição confiável pelo Google Play.
 
-1. quais propriedades o host Android Auto do VW270 realmente entrega ao `CarHardwareManager`;
-2. se o host cria a sessão do nosso `CarAppService` automaticamente ou se ainda exige que o app seja aberto uma vez na HU em cada conexão.
+Com isso, a `0.1.3` removeu do caminho investigativo o Car App projetado, Car Hardware, Usage Stats, Notification Listener e os snapshots genéricos de rede/input/áudio/media-route. O foco agora é a **superfície de providers exportados pelo próprio Android Auto no telefone**.
 
-A segunda limitação é controlada pelo **host Android Auto**. Não existe API pública suportada que permita ao app do telefone fabricar um `CarContext`/`Session` por conta própria.
+## Sonda Android Auto 0.1.3
 
-## Camada fused (continuidade)
+Quando `aa/connection_type` muda para `projection`, o app:
 
-O tópico `fused/*` é a saída operacional preferencial. `fused/speed_mps` usa a velocidade bruta do carro quando ela está chegando; após 2,5 s sem um valor válido, cai para a velocidade GNSS do telefone e marca o evento como `estimated`. `fused/odometer_m` ancora no último odômetro real recebido via Android Auto e, se o canal desaparecer, continua acumulando a distância GNSS. O status/atributos deixam claro se o valor é `measured` ou `estimated`; o valor estimado do odômetro é persistido entre reinicializações do processo.
+1. inventaria os `ContentProvider` exportados pelo pacote `com.google.android.projection.gearhead`, incluindo permissões, `pathPermissions`, `uriPermissionPatterns`, processo e chaves de metadata;
+2. usa somente operações read-only (`getType()` e `query()`);
+3. consulta de forma limitada os providers-alvo:
+   - `androidx.car.app.connection` — estado oficial da projeção;
+   - `com.google.android.gearhead.shared_preferences_provider` — configuração/estado compartilhado exposto pelo Android Auto;
+   - `com.google.android.projection.gearhead.troubleshooter_provider` — superfície de diagnóstico/troubleshooting;
+   - `com.google.android.projection.gearhead.color_provider` — controle simples para validar acesso a providers do processo de projeção;
+4. repete a leitura no início, em +5 s, +15 s e depois a cada 30 s;
+5. registra também um snapshot imediatamente antes da desconexão e outro após a desmontagem da sessão.
 
-## Fontes coletadas
+Providers relacionados a microfone, arquivos de bugreport, ícones e developer-settings são explicitamente ignorados porque não são relevantes para telemetria estruturada ou podem expor mídia/arquivos.
 
-### 1. Android Auto / veículo
+As consultas são limitadas a 20 linhas e 32 colunas por provider. BLOBs nunca são persistidos; campos com aparência de senha/token/credencial são redigidos antes de entrar no SQLite ou no ZIP de diagnóstico.
 
-Quando o host cria a sessão do `CarAppService`, `CarHardwareCollector` registra tudo o que a API pública projetada expõe:
+## Transporte ainda observado
 
-- fabricante, modelo e ano;
-- tipos de combustível e conectores EV;
-- combustível/bateria, alerta de energia baixa e autonomia;
-- velocidade bruta e velocidade exibida no painel;
-- unidade de velocidade;
-- odômetro e unidade de distância;
-- estado de cartão de pedágio;
-- estado da porta/conector de recarga EV;
-- acelerômetro do veículo;
-- giroscópio do veículo;
-- bússola/orientação do veículo;
-- localização fornecida pelo hardware do carro.
+USB e Bluetooth permanecem como contexto de sessão, não como fontes de telemetria do veículo:
 
-Os quatro sensores automotivos são solicitados com `UPDATE_RATE_FASTEST`.
+- USB registra devices/accessories e apenas `hasPermission`; o app **não abre** o accessory Android Auto;
+- Bluetooth registra dispositivos pareados/conectados e UUIDs SDP já disponíveis no sistema, sem endereço MAC no log novo.
 
-Cada `CarValue` grava valor, status (`SUCCESS`, `UNIMPLEMENTED`, `UNAVAILABLE` ou `UNKNOWN`), timestamp original, `carZones` e timestamp de recepção no telefone.
+Rede, Wi-Fi, áudio e input genéricos foram removidos da sonda porque o primeiro teste real não mostrou um canal útil de telemetria do VW270 nessas superfícies.
 
-### 2. Telefone
+## Telemetria do telefone
 
-Durante uma projeção Android Auto, o serviço habilita automaticamente todos os sensores retornados por `SensorManager.TYPE_ALL`, Fused Location/GNSS, bateria/estado térmico/rede, Bluetooth, áudio, USB, Wi-Fi e inventário/versão do Android Auto. Fora do carro os coletores de alta frequência são desligados.
+Durante a projeção permanecem ativos:
 
-### 3. Estado do Android Auto
+- Fused Location/GNSS;
+- satélites GNSS;
+- sensores do telefone;
+- velocidade estimada por GNSS;
+- bateria/estado térmico;
+- Bluetooth e USB como contexto de transporte.
 
-Sem depender do `CarAppService`:
+Essas fontes são úteis operacionalmente mesmo quando nenhum valor real do veículo é encontrado.
 
-- `CarConnection` informa `not_connected`, `native` ou `projection`;
-- `UsageStatsManager` observa atividade do pacote `com.google.android.projection.gearhead`;
-- `NotificationListenerService` registra apenas notificações publicadas pelo pacote do Android Auto.
+## Shizuku
 
-### 4. Shizuku opcional, sem root
+Shizuku continua no projeto como **fallback opcional**, mas não é necessário para o teste `0.1.3`. A estratégia é esgotar primeiro os providers públicos e, somente se necessário, avançar para sondas Binder estreitas e read-only.
 
-A PoC detecta o binder do Shizuku, versão, UID e estado da permissão. A primeira versão publicada mantém essa camada deliberadamente restrita a uma **sonda de capacidade**; não expõe um executor shell privilegiado genérico. Isso deixa preparado o caminho para probes Binder estreitos em uma evolução posterior sem tornar o APK um shell remoto.
+Não existe executor shell genérico no app.
 
-Shizuku não é necessário para a telemetria normal.
+## Logs para análise
 
-## Persistência, logs e MQTT
+Todos os eventos são persistidos em `telemetry.db`, com retenção aproximada de 7 dias / 250 mil eventos.
 
-Todos os eventos são gravados em `telemetry.db`. A política atual usa retenção de 7 dias e limite aproximado de 250 mil eventos.
+Na tela **Logs para análise**:
 
-Na tela **Logs para análise** existem dois exports pelo seletor de documentos do Android:
+- **Exportar pacote de diagnóstico (.zip)** gera `manifest.json`, `summary.json`, `latest.json`, `events.jsonl` e README;
+- **Exportar eventos brutos (.jsonl)** gera apenas a sequência cronológica.
 
-- **pacote de diagnóstico `.zip`** com `events.jsonl`, `summary.json`, `latest.json`, `manifest.json` e README do formato;
-- **eventos brutos `.jsonl`** com o fluxo cronológico completo ainda retido localmente.
+O formato atual do pacote é `vw270-telemetry-diagnostics-v2`. Credenciais MQTT não são exportadas e valores de provider potencialmente sensíveis são redigidos antes do armazenamento.
 
-O `manifest.json` inclui versão do app, aparelho/Android, versão detectada do Android Auto, permissões e configurações não sensíveis. Host, usuário e senha MQTT não são incluídos no pacote.
+## MQTT / Home Assistant
 
-MQTT publica em `car/vw270/<source>/<key>`, `car/vw270/event` e `car/vw270/availability`, com MQTT Discovery para valores escalares úteis ao Home Assistant.
+MQTT publica em:
+
+- `car/vw270/<source>/<key>`;
+- `car/vw270/event`;
+- `car/vw270/availability`.
+
+Diagnósticos brutos como `aa_provider/*`, `probe/*` e `usb/*` permanecem somente no SQLite por padrão.
 
 ## Build e APK
 
@@ -79,40 +90,25 @@ Requisitos: JDK 17, Gradle 8.13 e Android SDK 36.
 
 ```bash
 gradle :app:assembleDebug
+gradle :app:lintDebug
 ```
 
-O APK local fica em `app/build/outputs/apk/debug/app-debug.apk`.
+A GitHub Action **Build Android APK** roda em push/PR e manualmente. Um `main` válido atualiza a pre-release fixa:
 
-A esteira em `.github/workflows/android.yml` compila o APK em cada push/PR e também pode ser executada manualmente em **Actions → Build Android APK → Run workflow**.
+**Releases → VW270 Telemetry · Latest Debug**
 
-- todo build mantém APK + SHA-256 como artifact de CI por 14 dias;
-- um build iniciado por **Run workflow** cria uma **GitHub pre-release** e anexa o arquivo `.apk` diretamente, além do `.sha256`;
-- portanto, para obter um APK sob demanda: execute a workflow e depois abra **Releases**.
+Ela contém o APK direto e o respectivo SHA-256; o artifact de CI também permanece disponível temporariamente.
 
-## Instalação / primeira configuração
+## Instalação / primeiro teste da 0.1.3
 
-1. Instale o APK no telefone.
-2. Abra **VW270 Telemetry**.
-3. Conceda as permissões Android solicitadas, incluindo localização e permissões Car Hardware.
-4. Libere a otimização de bateria e, para continuidade, permita localização em segundo plano.
-5. Habilite Acesso às notificações/Acesso de uso se quiser as sondas adicionais.
-6. Configure MQTT e inicie o coletor persistente.
-7. Opcionalmente configure Shizuku.
+1. Instale a `0.1.3-poc`.
+2. Conceda localização, atividade física, Bluetooth e notificações quando solicitadas.
+3. Libere otimização de bateria e, para teste em segundo plano, localização sempre permitida.
+4. Inicie o coletor persistente **antes de conectar ao carro**.
+5. Espere alguns segundos desconectado para registrar o baseline.
+6. Conecte o Android Auto normalmente, sem procurar o VW270 Telemetry na HU.
+7. Deixe a sessão ativa por pelo menos 60–90 s.
+8. Desconecte e espere pelo menos 5 s.
+9. Exporte o ZIP de diagnóstico e analise `aa_provider/*`, `probe/provider_inventory`, `usb/transport` e `bluetooth/*`.
 
-## Teste decisivo: zero toque na HU
-
-Depois da instalação/configuração inicial, deixe a HU intocada, conecte o Android Auto e procure `aa/connection_type = projection`, `aa/session_created` e `car/hardware_manager`.
-
-| Resultado | Significado |
-|---|---|
-| `projection` + `session_created` aparece sozinho | o host abriu/bindou nosso Car App automaticamente; zero toque é viável com API pública |
-| `projection` aparece, mas `session_created` não | telefone detecta AA, porém o host não criou a sessão |
-| ao abrir VW270 Probe na HU surge `session_created` imediatamente | confirma a barreira do ciclo de vida controlado pelo host |
-
-## Limites deliberados
-
-Este projeto não lê CAN/ECU, não usa OBD, não requer root, não injeta código no Android Auto/Google Play Services e não envia comandos ao veículo.
-
-## Estado
-
-`0.1.1-poc` — probe instrumentado para S25+/Android 16 + Android Auto + VW270, com exportação de diagnóstico reproduzível.
+O resultado mais importante desta rodada é descobrir se `shared_preferences` ou `troubleshooter` revelam estado/capabilities da sessão que mudam de forma correlacionada com a HU. Se esses providers forem bloqueados ou exigirem paths específicos, o inventário de `pathPermissions`/`uriPermissionPatterns` orientará a próxima sonda sem voltar a uma varredura ampla.
