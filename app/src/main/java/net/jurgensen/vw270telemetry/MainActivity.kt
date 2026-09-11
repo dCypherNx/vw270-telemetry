@@ -64,30 +64,26 @@ class MainActivity : AppCompatActivity() {
         fun button(s: String, action: () -> Unit) = Button(this).apply { text = s; setOnClickListener { action() } }
         fun input(hint: String, value: String = "") = EditText(this).apply { this.hint = hint; setText(value) }
 
-        root.addView(title("VW270 Telemetry · PoC 0.1.2"))
+        root.addView(title("VW270 Telemetry · ${BuildConfig.VERSION_NAME}"))
         root.addView(note("Somente leitura. Sem root, sem OBD e sem qualquer comando ao veículo."))
+        root.addView(note("0.1.3: sonda focada nos providers exportados do Android Auto; redes, áudio, input genérico e Car App host foram removidos do caminho investigativo."))
         root.addView(button("1. Conceder permissões do Android") { requestRuntimePermissions() })
         root.addView(button("2. Iniciar coletor persistente") { startCollector() })
         root.addView(button("Parar coletor") { stopCollector() })
         root.addView(button("Liberar otimização de bateria") { requestBatteryExemption() })
         root.addView(button("Localização em segundo plano (zero toque)") { requestBackgroundLocation() })
-        root.addView(button("Acesso às notificações (sonda AA)") {
-            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        })
-        root.addView(button("Acesso de uso (sonda AA)") {
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        })
 
-        root.addView(title("Shizuku · camada opcional sem root"))
+        root.addView(title("Shizuku · fallback opcional"))
         shizukuState = note("")
         root.addView(shizukuState)
+        root.addView(note("Não é necessário para a rodada 0.1.3. Mantido apenas como próxima camada, caso os providers públicos não sejam suficientes."))
         root.addView(button("Solicitar permissão Shizuku") { ShizukuProbe(this).requestPermission(); renderShizuku() })
         root.addView(button("Executar snapshot read-only") {
             Thread { ShizukuProbe(this).runSnapshot("manual_ui"); runOnUiThread { renderLive() } }.start()
         })
 
         root.addView(title("Logs para análise"))
-        root.addView(note("O pacote ZIP inclui eventos cronológicos, resumo de disponibilidade/status, últimos valores e metadados do aparelho/app. Credenciais MQTT não são exportadas."))
+        root.addView(note("O ZIP inclui a sequência cronológica e os resultados dos providers. Valores com aparência de credencial são redigidos antes de serem persistidos."))
         root.addView(button("Exportar pacote de diagnóstico (.zip)") { exportDiagnosticBundle() })
         root.addView(button("Exportar eventos brutos (.jsonl)") { exportRawEvents() })
         root.addView(note("Retenção local: até ~250 mil eventos e 7 dias. O arquivo é salvo pelo seletor de documentos do Android."))
@@ -102,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         mqttPrefix = input("Prefixo", Runtime.prefs.mqttPrefix)
         listOf(mqttEnabled, mqttTls, mqttHost, mqttPort, mqttUser, mqttPass, mqttPrefix).forEach(root::addView)
         root.addView(button("Salvar MQTT") { saveMqtt() })
-        root.addView(note("Diagnósticos brutos permanecem apenas no SQLite local por padrão."))
+        root.addView(note("Diagnósticos aa_provider/probe/usb permanecem somente no SQLite local por padrão."))
 
         root.addView(title("Estado ao vivo"))
         live = TextView(this).apply {
@@ -193,16 +189,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestRuntimePermissions() {
-        val p = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            "com.google.android.gms.permission.CAR_SPEED",
-            "com.google.android.gms.permission.CAR_MILEAGE",
-            "com.google.android.gms.permission.CAR_FUEL",
+        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= 29) permissions += Manifest.permission.ACTIVITY_RECOGNITION
+        if (Build.VERSION.SDK_INT >= 31) permissions += Manifest.permission.BLUETOOTH_CONNECT
+        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
+        requestPermissions(
+            permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }.toTypedArray(),
+            27,
         )
-        if (Build.VERSION.SDK_INT >= 29) p += Manifest.permission.ACTIVITY_RECOGNITION
-        if (Build.VERSION.SDK_INT >= 31) p += Manifest.permission.BLUETOOTH_CONNECT
-        if (Build.VERSION.SDK_INT >= 33) p += Manifest.permission.POST_NOTIFICATIONS
-        requestPermissions(p.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), 27)
     }
 
     private fun startCollector() {
@@ -219,7 +215,6 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT == 29) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 29)
         } else if (Build.VERSION.SDK_INT >= 30) {
-            // Android 11+ deliberately requires the user to choose "Allow all the time" in app settings.
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
     }
@@ -245,26 +240,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderShizuku() {
-        val s = ShizukuProbe(this).state()
-        shizukuState.text = "alive=${s["alive"]}  permission=${s["permission"]}  uid=${s["server_uid"]}"
+        val state = ShizukuProbe(this).state()
+        shizukuState.text = "alive=${state["alive"]}  permission=${state["permission"]}  uid=${state["server_uid"]}"
     }
 
     private fun renderLive() {
         if (!::live.isInitialized) return
         val important = Runtime.hub.latest().filter {
-            it.source in setOf("aa", "car", "fused", "probe", "shizuku", "phone_location", "gnss", "system", "bluetooth")
-        }.takeLast(100)
-        live.text = important.joinToString("\n") { e ->
-            "${e.id.padEnd(34)} ${e.status.padEnd(13)} ${short(e.value)}"
+            it.source in setOf(
+                "aa", "aa_provider", "fused", "probe", "usb", "bluetooth", "shizuku",
+                "phone_location", "gnss", "system",
+            )
+        }.takeLast(120)
+        live.text = important.joinToString("\n") { event ->
+            "${event.id.padEnd(38)} ${event.status.padEnd(17)} ${short(event.value)}"
         }
     }
 
-    private fun short(v: Any?): String = when (v) {
+    private fun short(value: Any?): String = when (value) {
         null -> "—"
-        else -> v.toString().replace('\n', ' ').take(140)
+        else -> value.toString().replace('\n', ' ').take(160)
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     companion object {
         private const val REQ_EXPORT_ZIP = 271
