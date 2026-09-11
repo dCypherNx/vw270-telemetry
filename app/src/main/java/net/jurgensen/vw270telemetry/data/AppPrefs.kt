@@ -40,15 +40,4 @@ class AppPrefs(context: Context) {
     var publishRawDiagnostics: Boolean
         get() = p.getBoolean("mqtt_raw_diag", false)
         set(v) = p.edit().putBoolean("mqtt_raw_diag", v).apply()
-
-    var virtualOdometerM: Double?
-        get() = p.getString("virtual_odometer_m", null)?.toDoubleOrNull()
-        set(v) {
-            if (v == null) p.edit().remove("virtual_odometer_m").apply()
-            else p.edit().putString("virtual_odometer_m", v.toString()).apply()
-        }
-
-    var shizukuAutoProbe: Boolean
-        get() = p.getBoolean("shizuku_auto_probe", true)
-        set(v) = p.edit().putBoolean("shizuku_auto_probe", v).apply()
 }
