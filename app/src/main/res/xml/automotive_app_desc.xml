@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<automotiveApp>
-    <uses name="service" />
+<automotiveApp xmlns:tools="http://schemas.android.com/tools">
+    <!-- Legacy Android Auto Vendor Extension category required by aauto-sdk/VEX. Modern lint no
+         longer recognizes it because the public VEX API was removed from current documentation. -->
+    <uses
+        name="service"
+        tools:ignore="InvalidUsesTagAttribute" />
 </automotiveApp>
