@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -17,25 +13,11 @@
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!--
-      PACKAGE_USAGE_STATS is an app-op special access: Android requires the declaration here,
-      while the user grants Usage Access separately in Settings. Lint's generic protected-
-      permission check does not account for that app-op grant path.
-    -->
-    <uses-permission
-        android:name="android.permission.PACKAGE_USAGE_STATS"
-        tools:ignore="ProtectedPermissions" />
-
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 
-    <!-- Android Auto projected car-hardware permissions. -->
-    <uses-permission android:name="com.google.android.gms.permission.CAR_SPEED" />
-    <uses-permission android:name="com.google.android.gms.permission.CAR_MILEAGE" />
-    <uses-permission android:name="com.google.android.gms.permission.CAR_FUEL" />
-
-    <!-- Required on Android 11+ so package/version diagnostics can see Android Auto. -->
+    <!-- Package visibility is required for Android Auto provider/package diagnostics. -->
     <queries>
         <package android:name="com.google.android.projection.gearhead" />
     </queries>
@@ -47,13 +29,6 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.VW270Telemetry">
-
-        <meta-data
-            android:name="com.google.android.gms.car.application"
-            android:resource="@xml/automotive_app_desc" />
-        <meta-data
-            android:name="androidx.car.app.minCarApiLevel"
-            android:value="6" />
 
         <activity
             android:name=".MainActivity"
@@ -68,25 +43,6 @@
             android:name=".TelemetryService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice|location" />
-
-        <service
-            android:name=".car.VwCarAppService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.IOT" />
-            </intent-filter>
-        </service>
-
-        <service
-            android:name=".system.AaNotificationListenerService"
-            android:label="VW270 Android Auto probe"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
 
         <receiver
             android:name=".system.BootReceiver"
