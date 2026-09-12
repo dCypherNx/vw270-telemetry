@@ -31,11 +31,14 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "net.jurgensen.vw270telemetry"
+        // Volkswagen MIB2 advertises the ExLAP vendor channel only to the legacy VAG bridge
+        // package identity. Keep our Kotlin namespace unchanged; this is an application identity
+        // probe so the HU sees the same package used by Martoreto's original VAG VEX bridge.
+        applicationId = "de.vw.exlap.android"
         minSdk = 28
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.1.4-poc"
+        versionCode = 6
+        versionName = "0.1.5-poc"
 
         vectorDrawables.useSupportLibrary = true
     }
